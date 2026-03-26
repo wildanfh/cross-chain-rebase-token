@@ -16,6 +16,13 @@ interface IRebaseToken {
      */
     function burn(address _from, uint256 _amount) external;
 
+    /**
+     * @notice Returns the current balance of an account, including accrued interest.
+     * @param _user The address of the account.
+     * @return The total balance including interest.
+     */
+    function balanceOf(address _user) external view returns (uint256);
+
     // Note: We only include functions that the Vault contract will call.
     // Other functions from the actual RebaseToken.sol are not needed here.
 }

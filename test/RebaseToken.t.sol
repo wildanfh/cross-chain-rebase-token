@@ -7,6 +7,9 @@ import {RebaseToken} from "src/RebaseToken.sol";
 import {Vault} from "src/Vault.sol";
 import {IRebaseToken} from "src/interfaces/IRebaseToken.sol";
 
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+
 contract RebaseTokenTest is Test {
     RebaseToken private rebaseToken;
     Vault private vault;
@@ -68,5 +71,134 @@ contract RebaseTokenTest is Test {
         assertApproxEqAbs(interestFirstPeriod, interestSecondPeriod, 1, "Interest accrual is not linear");
 
         vm.stopPrank();
+    }
+
+    function addRewardsToVault(uint256 rewardAmount) public {
+        (bool success,) = payable(address(vault)).call{value: rewardAmount}("");
+        require(success, "Failed to add rewards");
+    }
+
+    function testRedeemStraightAway(uint256 amount) public {
+        amount = bound(amount, 1e5, type(uint96).max);
+
+        vm.startPrank(user);
+        vm.deal(user, amount);
+        vault.deposit{value: amount}();
+
+        vault.redeem(type(uint256).max);
+
+        assertEq(rebaseToken.balanceOf(user), 0);
+        assertApproxEqAbs(address(user).balance, amount, 1);
+        vm.stopPrank();
+    }
+
+    function testRedeemAfterTimePassed(uint256 depositAmount, uint256 time) public {
+        depositAmount = bound(depositAmount, 1e5, type(uint96).max);
+        time = bound(time, 1 days, 365 days); // Batasi waktu agar tidak overflow
+
+        vm.startPrank(user);
+        vm.deal(user, depositAmount);
+        vault.deposit{value: depositAmount}();
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + time);
+
+        uint256 balanceAfterTime = rebaseToken.balanceOf(user);
+        uint256 rewardAmount = balanceAfterTime - depositAmount;
+        vm.deal(address(this), rewardAmount);
+
+        addRewardsToVault(rewardAmount);
+
+        vm.startPrank(user);
+        vault.redeem(type(uint256).max);
+
+        assertGt(address(user).balance, depositAmount); // Uang yang kembali harus lebih besar dari deposit
+        vm.stopPrank();
+    }
+
+    function testGetPrincipleAmount(uint256 amount) public {
+        amount = bound(amount, 1e5, type(uint96).max);
+
+        vm.startPrank(user);
+        vm.deal(user, amount);
+        vault.deposit{value: amount}();
+
+        assertEq(rebaseToken.principleBalanceOf(user), amount);
+
+        vm.warp(block.timestamp + 10 days); // Maju 10 hari
+
+        // Saldo modal harus tetap sama meski saldo total (dengan bunga) naik
+        assertEq(rebaseToken.principleBalanceOf(user), amount);
+        vm.stopPrank();
+    }
+
+    function testCannotSetInterestRate(uint256 newInterestRate) public {
+        vm.prank(user); // User biasa mencoba set rate
+        vm.expectPartialRevert(bytes4(Ownable.OwnableUnauthorizedAccount.selector));
+        rebaseToken.setInterestRate(newInterestRate);
+    }
+
+    function testCannotCallMintAndBurn() public {
+        vm.prank(user);
+        vm.expectPartialRevert(bytes4(IAccessControl.AccessControlUnauthorizedAccount.selector));
+        rebaseToken.mint(user, 1 ether);
+
+        vm.prank(user);
+        vm.expectPartialRevert(bytes4(IAccessControl.AccessControlUnauthorizedAccount.selector));
+        rebaseToken.burn(user, 1 ether);
+    }
+
+    // ==========================================
+    // TAMBAHAN TES UNTUK MENAIKKAN COVERAGE
+    // ==========================================
+
+    function testDepositZeroReverts() public {
+        vm.startPrank(user);
+        vm.expectPartialRevert(bytes4(Vault.Vault__DepositAmountIsZero.selector));
+        vault.deposit{value: 0}();
+        vm.stopPrank();
+    }
+
+    function testGetRebaseTokenAddress() public view {
+        assertEq(vault.getRebaseTokenAddress(), address(rebaseToken));
+    }
+
+    function testSetInterestRateSuccess() public {
+        vm.prank(owner);
+        rebaseToken.setInterestRate(4e10); // Bos menurunkan suku bunga jadi 4e10
+        assertEq(rebaseToken.getInterestRate(), 4e10); // Sukses
+    }
+
+    function testSetInterestRateCanOnlyDecrease() public {
+        vm.prank(owner);
+        // Suku bunga awal adalah 5e10. Jika dicoba naik jadi 6e10, harusnya gagal
+        vm.expectPartialRevert(bytes4(RebaseToken.RebaseToken__InterestRateCanOnlyDecrease.selector));
+        rebaseToken.setInterestRate(6e10);
+    }
+
+    function testTransferInheritsInterestRate(uint256 amount, uint256 transferAmount) public {
+        amount = bound(amount, 1e5, type(uint96).max);
+        transferAmount = bound(transferAmount, 1, amount);
+
+        // 1. User nabung saat rate global 5e10
+        vm.startPrank(user);
+        vm.deal(user, amount);
+        vault.deposit{value: amount}();
+        vm.stopPrank();
+
+        // 2. Bos menurunkan rate global jadi 4e10
+        vm.prank(owner);
+        rebaseToken.setInterestRate(4e10);
+
+        // 3. User transfer ke Penerima Baru
+        address penerimaBaru = makeAddr("penerima");
+
+        vm.prank(user);
+        rebaseToken.transfer(penerimaBaru, transferAmount);
+
+        // 4. Penerima baru HARUS mewarisi rate 5e10 dari pengirim, BUKAN 4e10 (rate global saat ini)
+        assertEq(rebaseToken.getUserInterestRate(penerimaBaru), 5e10);
+        // Saldo penerima harus sesuai
+        assertEq(rebaseToken.principleBalanceOf(penerimaBaru), transferAmount);
     }
 }
