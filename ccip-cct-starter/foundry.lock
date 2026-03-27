@@ -1,0 +1,8 @@
+{
+  "lib/ccip": {
+    "rev": "c279cbb4ab57436b9c59c9321492e25f0aa30e80"
+  },
+  "lib/forge-std": {
+    "rev": "b93cf4bc34ff214c099dc970b153f85ade8c9f66"
+  }
+}
