@@ -11,6 +11,8 @@ import {Register} from "@chainlink-local/src/ccip/Register.sol";
 import {IERC20} from "@openzeppelin/contracts@5.3.0/token/ERC20/IERC20.sol";
 import {RegistryModuleOwnerCustom} from "@ccip/contracts/tokenAdminRegistry/RegistryModuleOwnerCustom.sol";
 import {TokenAdminRegistry} from "@ccip/contracts/tokenAdminRegistry/TokenAdminRegistry.sol";
+import {TokenPool} from "@ccip/contracts/pools/TokenPool.sol";
+import {RateLimiter} from "@ccip/contracts/libraries/RateLimiter.sol";
 
 contract CrossChainTest is Test {
     // =========================================
@@ -30,7 +32,7 @@ contract CrossChainTest is Test {
     RebaseToken arbSepoliaToken;
     RebaseTokenPool arbSepoliaPool;
 
-    // Network details for each chain (router, rmnProxy, registries, etc.)
+    // Network details for each chain
     Register.NetworkDetails sepoliaNetworkDetails;
     Register.NetworkDetails arbSepoliaNetworkDetails;
 
@@ -49,27 +51,20 @@ contract CrossChainTest is Test {
         // =====================================================
         // Step 2: Deploy and configure on Sepolia (source chain)
         // =====================================================
-        // We are currently on sepoliaFork (selected above).
         sepoliaNetworkDetails = ccipLocalSimulatorFork.getNetworkDetails(block.chainid);
 
         vm.startPrank(owner);
 
-        // Deploy RebaseToken on Sepolia
         sepoliaToken = new RebaseToken();
-
-        // Deploy Vault on Sepolia (only on source chain)
         vault = new Vault(IRebaseToken(address(sepoliaToken)));
-
-        // Deploy RebaseTokenPool on Sepolia
         sepoliaPool = new RebaseTokenPool(
             IERC20(address(sepoliaToken)),
             18,
-            address(0), // no advanced pool hooks
+            address(0),
             sepoliaNetworkDetails.rmnProxyAddress,
             sepoliaNetworkDetails.routerAddress
         );
 
-        // Grant MINT_AND_BURN_ROLE to Vault and Pool
         sepoliaToken.grantMintAndBurnRole(address(vault));
         sepoliaToken.grantMintAndBurnRole(address(sepoliaPool));
 
@@ -83,19 +78,15 @@ contract CrossChainTest is Test {
 
         vm.startPrank(owner);
 
-        // Deploy RebaseToken on Arbitrum Sepolia
         arbSepoliaToken = new RebaseToken();
-
-        // Deploy RebaseTokenPool on Arbitrum Sepolia
         arbSepoliaPool = new RebaseTokenPool(
             IERC20(address(arbSepoliaToken)),
             18,
-            address(0), // no advanced pool hooks
+            address(0),
             arbSepoliaNetworkDetails.rmnProxyAddress,
             arbSepoliaNetworkDetails.routerAddress
         );
 
-        // Grant MINT_AND_BURN_ROLE to Pool (no vault on destination chain)
         arbSepoliaToken.grantMintAndBurnRole(address(arbSepoliaPool));
 
         vm.stopPrank();
@@ -104,67 +95,118 @@ contract CrossChainTest is Test {
         // Step 4: Claim admin role for tokens in CCIP system
         // =====================================================
 
-        // --- Sepolia: Register + Accept admin ---
+        // --- Sepolia ---
         vm.selectFork(sepoliaFork);
         vm.startPrank(owner);
-
         RegistryModuleOwnerCustom(sepoliaNetworkDetails.registryModuleOwnerCustomAddress)
             .registerAdminViaOwner(address(sepoliaToken));
-
         TokenAdminRegistry(sepoliaNetworkDetails.tokenAdminRegistryAddress)
             .acceptAdminRole(address(sepoliaToken));
-
         vm.stopPrank();
 
-        // --- Arbitrum Sepolia: Register + Accept admin ---
+        // --- Arbitrum Sepolia ---
         vm.selectFork(arbSepoliaFork);
         vm.startPrank(owner);
-
         RegistryModuleOwnerCustom(arbSepoliaNetworkDetails.registryModuleOwnerCustomAddress)
             .registerAdminViaOwner(address(arbSepoliaToken));
-
         TokenAdminRegistry(arbSepoliaNetworkDetails.tokenAdminRegistryAddress)
             .acceptAdminRole(address(arbSepoliaToken));
-
         vm.stopPrank();
 
         // =====================================================
         // Step 5: Link tokens to their pools
         // =====================================================
-
-        // --- Sepolia: Link sepoliaToken → sepoliaPool ---
         vm.selectFork(sepoliaFork);
         vm.startPrank(owner);
-
         TokenAdminRegistry(sepoliaNetworkDetails.tokenAdminRegistryAddress)
             .setPool(address(sepoliaToken), address(sepoliaPool));
-
         vm.stopPrank();
 
-        // --- Arbitrum Sepolia: Link arbSepoliaToken → arbSepoliaPool ---
         vm.selectFork(arbSepoliaFork);
         vm.startPrank(owner);
-
         TokenAdminRegistry(arbSepoliaNetworkDetails.tokenAdminRegistryAddress)
             .setPool(address(arbSepoliaToken), address(arbSepoliaPool));
-
         vm.stopPrank();
 
-        // Token pool chain configuration (applyChainUpdates) will be
-        // implemented in a dedicated function in the next lesson.
+        // =====================================================
+        // Step 6: Configure token pools for cross-chain communication
+        // =====================================================
+
+        // Sepolia pool ↔ Arbitrum Sepolia pool
+        configureTokenPool(
+            sepoliaFork,
+            address(sepoliaPool),
+            arbSepoliaNetworkDetails.chainSelector,
+            address(arbSepoliaPool),
+            address(arbSepoliaToken)
+        );
+
+        // Arbitrum Sepolia pool ↔ Sepolia pool
+        configureTokenPool(
+            arbSepoliaFork,
+            address(arbSepoliaPool),
+            sepoliaNetworkDetails.chainSelector,
+            address(sepoliaPool),
+            address(sepoliaToken)
+        );
+    }
+
+    // =========================================
+    // Helper: Configure a token pool for a remote chain
+    // =========================================
+    function configureTokenPool(
+        uint256 forkId,
+        address localPoolAddress,
+        uint64 remoteChainSelector,
+        address remotePoolAddress,
+        address remoteTokenAddress
+    ) public {
+        // 1. Switch to the local chain's fork
+        vm.selectFork(forkId);
+
+        // 2. Prepare the empty removal array (we are only adding)
+        uint64[] memory remoteChainSelectorsToRemove = new uint64[](0);
+
+        // 3. Create the remote pool addresses array
+        //    Each element is an ABI-encoded pool address
+        bytes[] memory remotePoolAddresses = new bytes[](1);
+        remotePoolAddresses[0] = abi.encode(remotePoolAddress);
+
+        // 4. Construct the ChainUpdate struct
+        TokenPool.ChainUpdate[] memory chainsToAdd = new TokenPool.ChainUpdate[](1);
+        chainsToAdd[0] = TokenPool.ChainUpdate({
+            remoteChainSelector: remoteChainSelector,
+            remotePoolAddresses: remotePoolAddresses,
+            remoteTokenAddress: abi.encode(remoteTokenAddress),
+            outboundRateLimiterConfig: RateLimiter.Config({
+                isEnabled: false,
+                capacity: 0,
+                rate: 0
+            }),
+            inboundRateLimiterConfig: RateLimiter.Config({
+                isEnabled: false,
+                capacity: 0,
+                rate: 0
+            })
+        });
+
+        // 5. Apply the chain update as the pool owner
+        vm.prank(owner);
+        TokenPool(localPoolAddress).applyChainUpdates(
+            remoteChainSelectorsToRemove,
+            chainsToAdd
+        );
     }
 
     // =========================================
     // Tests
     // =========================================
     function testForkSetup() public {
-        // Verify Sepolia deployments
         vm.selectFork(sepoliaFork);
         assertGt(address(sepoliaToken).code.length, 0, "Sepolia token should be deployed");
         assertGt(address(vault).code.length, 0, "Vault should be deployed on Sepolia");
         assertGt(address(sepoliaPool).code.length, 0, "Sepolia pool should be deployed");
 
-        // Verify Arbitrum Sepolia deployments
         vm.selectFork(arbSepoliaFork);
         assertGt(address(arbSepoliaToken).code.length, 0, "Arb Sepolia token should be deployed");
         assertGt(address(arbSepoliaPool).code.length, 0, "Arb Sepolia pool should be deployed");
