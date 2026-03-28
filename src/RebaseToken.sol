@@ -23,12 +23,12 @@ contract RebaseToken is ERC20, Ownable, AccessControl {
     uint256 private constant PRECISION_FACTOR = 1e18;
     bytes32 public constant MINT_AND_BURN_ROLE = keccak256("MINT_AND_BURN_ROLE");
 
-    uint256 private s_interestRate = 5e10;
+    uint256 private sInterestRate = 5e10;
 
-    mapping(address => uint256) private s_userInterestRate;
-    mapping(address => uint256) private s_userLastUpdatedTimestamp;
+    mapping(address => uint256) private sUserInterestRate;
+    mapping(address => uint256) private sUserLastUpdatedTimestamp;
 
-    constructor() ERC20("Rebase Token", "RBT") Ownable(msg.sender) {}
+    constructor() ERC20("Rebase Token", "RBT") Ownable() {}
 
     /**
      * @notice Set the global interest rate for the contract.
@@ -36,10 +36,10 @@ contract RebaseToken is ERC20, Ownable, AccessControl {
      * @dev The interest rate can only decrease. Access control (e.g., onlyOwner) should be added.
      */
     function setInterestRate(uint256 _newInterestRate) external onlyOwner {
-        if (_newInterestRate > s_interestRate) {
-            revert RebaseToken__InterestRateCanOnlyDecrease(s_interestRate, _newInterestRate);
+        if (_newInterestRate > sInterestRate) {
+            revert RebaseToken__InterestRateCanOnlyDecrease(sInterestRate, _newInterestRate);
         }
-        s_interestRate = _newInterestRate;
+        sInterestRate = _newInterestRate;
         emit InterestRateSet(_newInterestRate);
     }
 
@@ -55,9 +55,22 @@ contract RebaseToken is ERC20, Ownable, AccessControl {
         // Step 2: Update the user's interest rate for future calculations if necessary
         // This assumes s_interestRate is the current global interest rate.
         // If the user already has a deposit, their rate might be updated.
-        s_userInterestRate[_to] = s_interestRate;
+        sUserInterestRate[_to] = sInterestRate;
 
         // Step 3: Mint the newly deposited amount
+        _mint(_to, _amount);
+    }
+
+    /**
+     * @notice Mints tokens to a user with a specific interest rate (for cross-chain minting).
+     * @dev Used by the token pool to preserve the user's interest rate from the source chain.
+     * @param _to The address to mint tokens to.
+     * @param _amount The principal amount of tokens to mint.
+     * @param _interestRate The interest rate to set for the user.
+     */
+    function mint(address _to, uint256 _amount, uint256 _interestRate) external onlyRole(MINT_AND_BURN_ROLE) {
+        _mintAccruedInterest(_to);
+        sUserInterestRate[_to] = _interestRate;
         _mint(_to, _amount);
     }
 
@@ -128,7 +141,7 @@ contract RebaseToken is ERC20, Ownable, AccessControl {
         // A more robust check for "newness" for rate setting might be super.balanceOf(_recipient) == 0 before any interest minting for the recipient.
         // However, the current logic is: if their *effective* balance is 0 before the main transfer part, they get the sender's rate.
         if (balanceOf(_recipient) == 0 && _amount > 0) {
-            s_userInterestRate[_recipient] = s_userInterestRate[msg.sender];
+            sUserInterestRate[_recipient] = sUserInterestRate[msg.sender];
         }
 
         // 4. Execute the base ERC20 transfer
@@ -154,7 +167,7 @@ contract RebaseToken is ERC20, Ownable, AccessControl {
         }
 
         if (balanceOf(_recipient) == 0 && _amount > 0) {
-            s_userInterestRate[_recipient] = s_userInterestRate[_sender];
+            sUserInterestRate[_recipient] = sUserInterestRate[_sender];
         }
 
         return super.transferFrom(_sender, _recipient, _amount);
@@ -179,7 +192,7 @@ contract RebaseToken is ERC20, Ownable, AccessControl {
      * @return The user's specific interest rate.
      */
     function getUserInterestRate(address _user) external view returns (uint256) {
-        return s_userInterestRate[_user];
+        return sUserInterestRate[_user];
     }
 
     /**
@@ -187,7 +200,7 @@ contract RebaseToken is ERC20, Ownable, AccessControl {
      * @return The current global interest rate.
      */
     function getInterestRate() external view returns (uint256) {
-        return s_interestRate;
+        return sInterestRate;
     }
 
     /**
@@ -205,7 +218,7 @@ contract RebaseToken is ERC20, Ownable, AccessControl {
         uint256 balanceIncrease = currentBalance - previousPrincipleBalance;
 
         // set the users last updated timestamp (Effect)
-        s_userLastUpdatedTimestamp[_user] = block.timestamp;
+        sUserLastUpdatedTimestamp[_user] = block.timestamp;
 
         // Mint the accrued interest (Interaction)
         if (balanceIncrease > 0) {
@@ -224,18 +237,18 @@ contract RebaseToken is ERC20, Ownable, AccessControl {
         returns (uint256 linearInterestFactor)
     {
         // 1. Calculate the time elapsed since the user's balance was last effectively updated.
-        uint256 timeElapsed = block.timestamp - s_userLastUpdatedTimestamp[_user];
+        uint256 timeElapsed = block.timestamp - sUserLastUpdatedTimestamp[_user];
 
         // If no time has passed, or if the user has no locked rate (e.g., never interacted),
         // the growth factor is simply 1 (scaled by PRECISION_FACTOR).
-        if (timeElapsed == 0 || s_userInterestRate[_user] == 0) {
+        if (timeElapsed == 0 || sUserInterestRate[_user] == 0) {
             return PRECISION_FACTOR;
         }
 
         // 2. Calculate the total fractional interest accrued: UserInterestRate * TimeElapsed.
         // s_userInterestRate[_user] is the rate per second.
         // This product is already scaled appropriately if s_userInterestRate is stored scaled.
-        uint256 fractionalInterest = s_userInterestRate[_user] * timeElapsed;
+        uint256 fractionalInterest = sUserInterestRate[_user] * timeElapsed;
 
         // 3. The growth factor is (1 + fractional_interest_part).
         // Since '1' is represented as PRECISION_FACTOR, and fractionalInterest is already scaled, we add them.

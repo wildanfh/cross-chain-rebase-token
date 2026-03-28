@@ -15,7 +15,7 @@ contract Vault {
     //    - Sends the corresponding amount of ETH back to the user.
     // 4. Implement a mechanism to add ETH rewards to the vault.
 
-    IRebaseToken private immutable i_rebaseToken;
+    IRebaseToken private immutable I_REBASE_TOKEN;
 
     // Event for deposits (user is indexed for efficient filtering)
     event Deposit(address indexed user, uint256 amount);
@@ -27,7 +27,7 @@ contract Vault {
     error Vault__DepositAmountIsZero();
 
     constructor(IRebaseToken _rebaseTokenAddress) {
-        i_rebaseToken = _rebaseTokenAddress;
+        I_REBASE_TOKEN = _rebaseTokenAddress;
     }
 
     /**
@@ -52,7 +52,7 @@ contract Vault {
         }
 
         // Call the mint function on the RebaseToken contract
-        i_rebaseToken.mint(msg.sender, amountToMint);
+        I_REBASE_TOKEN.mint(msg.sender, amountToMint);
 
         // Emit an event to log the deposit
         emit Deposit(msg.sender, amountToMint);
@@ -68,10 +68,10 @@ contract Vault {
         // Burn the specified amount of tokens from the caller (msg.sender)
         uint256 amountToRedeem = _amount;
         if (_amount == type(uint256).max) {
-            amountToRedeem = i_rebaseToken.balanceOf(msg.sender);
+            amountToRedeem = I_REBASE_TOKEN.balanceOf(msg.sender);
         }
         // The RebaseToken's burn function should handle checks for sufficient balance.
-        i_rebaseToken.burn(msg.sender, _amount);
+        I_REBASE_TOKEN.burn(msg.sender, _amount);
 
         // 2. Interactions (External calls / ETH transfer last)
         // Send the equivalent amount of ETH back to the user
@@ -91,6 +91,6 @@ contract Vault {
      * @return The address of the RebaseToken.
      */
     function getRebaseTokenAddress() external view returns (address) {
-        return address(i_rebaseToken);
+        return address(I_REBASE_TOKEN);
     }
 }

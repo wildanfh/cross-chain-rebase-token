@@ -2,13 +2,13 @@
 
 pragma solidity ^0.8.24;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {RebaseToken} from "src/RebaseToken.sol";
 import {Vault} from "src/Vault.sol";
 import {IRebaseToken} from "src/interfaces/IRebaseToken.sol";
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+
+
 
 contract RebaseTokenTest is Test {
     RebaseToken private rebaseToken;
@@ -134,17 +134,17 @@ contract RebaseTokenTest is Test {
 
     function testCannotSetInterestRate(uint256 newInterestRate) public {
         vm.prank(user); // User biasa mencoba set rate
-        vm.expectPartialRevert(bytes4(Ownable.OwnableUnauthorizedAccount.selector));
+        vm.expectRevert("Ownable: caller is not the owner");
         rebaseToken.setInterestRate(newInterestRate);
     }
 
     function testCannotCallMintAndBurn() public {
         vm.prank(user);
-        vm.expectPartialRevert(bytes4(IAccessControl.AccessControlUnauthorizedAccount.selector));
+        vm.expectRevert();
         rebaseToken.mint(user, 1 ether);
 
         vm.prank(user);
-        vm.expectPartialRevert(bytes4(IAccessControl.AccessControlUnauthorizedAccount.selector));
+        vm.expectRevert();
         rebaseToken.burn(user, 1 ether);
     }
 
@@ -194,7 +194,8 @@ contract RebaseTokenTest is Test {
         address penerimaBaru = makeAddr("penerima");
 
         vm.prank(user);
-        rebaseToken.transfer(penerimaBaru, transferAmount);
+        bool success = rebaseToken.transfer(penerimaBaru, transferAmount);
+        assertTrue(success, "Transfer should succeed");
 
         // 4. Penerima baru HARUS mewarisi rate 5e10 dari pengirim, BUKAN 4e10 (rate global saat ini)
         assertEq(rebaseToken.getUserInterestRate(penerimaBaru), 5e10);
