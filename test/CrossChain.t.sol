@@ -244,14 +244,19 @@ contract CrossChainTest is Test {
         // 10. Simulate time passing for message propagation
         vm.warp(block.timestamp + 20 minutes);
 
-        // 11. Route the CCIP message to the remote chain
-        // IMPORTANT: must stay on localFork here — switchChainAndRouteMessage
-        // uses vm.activeFork() to detect the source chain, then switches internally.
+        // 11. Read the user's balance on remote chain BEFORE message routing.
+        //     Must briefly switch to remoteFork because remoteToken only exists there.
+        vm.selectFork(remoteFork);
+        uint256 remoteBalanceBefore = remoteToken.balanceOf(user);
+
+        // 12. Switch back to localFork because switchChainAndRouteMessage
+        //     uses vm.activeFork() to detect the SOURCE chain.
+        vm.selectFork(localFork);
         ccipLocalSimulatorFork.switchChainAndRouteMessage(remoteFork);
 
-        // 12. Now we are on remoteFork. Assert remote balance increased.
+        // 13. Now we are on remoteFork. Assert remote balance increased by amountToBridge.
         uint256 remoteBalanceAfter = remoteToken.balanceOf(user);
-        assertEq(remoteBalanceAfter, amountToBridge, "Remote balance incorrect after receive");
+        assertEq(remoteBalanceAfter, remoteBalanceBefore + amountToBridge, "Remote balance incorrect after receive");
 
         // 14. Verify interest rate was preserved across chains (RebaseToken-specific)
         uint256 remoteUserInterestRate = remoteToken.getUserInterestRate(user);
@@ -272,38 +277,24 @@ contract CrossChainTest is Test {
         assertGt(address(arbSepoliaPool).code.length, 0, "Arb Sepolia pool should be deployed");
     }
 
-    function testBridgeTokensSepoliaToArbSepolia() public {
-        // 1. User deposits ETH into the Vault on Sepolia to get RebaseTokens
+    function testBridgeAllTokens() public {
+        uint256 amountToDeposit = 1e5;
+
+        // =====================================================
+        // 1. Deposit into Vault on Sepolia
+        // =====================================================
         vm.selectFork(sepoliaFork);
-        uint256 depositAmount = 1e18; // 1 ETH
-        vm.deal(user, depositAmount);
+        vm.deal(user, amountToDeposit);
         vm.prank(user);
-        vault.deposit{value: depositAmount}();
+        Vault(payable(address(vault))).deposit{value: amountToDeposit}();
 
-        assertEq(sepoliaToken.balanceOf(user), depositAmount, "User should have tokens after deposit");
+        assertEq(sepoliaToken.balanceOf(user), amountToDeposit, "User Sepolia token balance after deposit incorrect");
 
-        // 2. Bridge all tokens from Sepolia → Arbitrum Sepolia
+        // =====================================================
+        // 2. Bridge all tokens: Sepolia → Arbitrum Sepolia
+        // =====================================================
         bridgeTokens(
-            depositAmount,
-            sepoliaFork,
-            arbSepoliaFork,
-            sepoliaNetworkDetails,
-            arbSepoliaNetworkDetails,
-            sepoliaToken,
-            arbSepoliaToken
-        );
-    }
-
-    function testBridgeTokensArbSepoliaToSepolia() public {
-        // 1. First bridge tokens TO Arb Sepolia (so there's something to bridge back)
-        vm.selectFork(sepoliaFork);
-        uint256 depositAmount = 1e18;
-        vm.deal(user, depositAmount);
-        vm.prank(user);
-        vault.deposit{value: depositAmount}();
-
-        bridgeTokens(
-            depositAmount,
+            amountToDeposit,
             sepoliaFork,
             arbSepoliaFork,
             sepoliaNetworkDetails,
@@ -312,9 +303,22 @@ contract CrossChainTest is Test {
             arbSepoliaToken
         );
 
-        // 2. Now bridge tokens BACK from Arb Sepolia → Sepolia
+        // =====================================================
+        // 3. Warp time on Arb Sepolia so interest accrues
+        // =====================================================
+        vm.selectFork(arbSepoliaFork);
+        vm.warp(block.timestamp + 20 minutes);
+
+        // After time passes, the rebase token balance grows due to interest.
+        // We bridge back the FULL balance (principal + accrued interest).
+        uint256 arbBalance = arbSepoliaToken.balanceOf(user);
+        assertGt(arbBalance, amountToDeposit, "Balance should have grown due to interest accrual");
+
+        // =====================================================
+        // 4. Bridge all tokens back: Arbitrum Sepolia → Sepolia
+        // =====================================================
         bridgeTokens(
-            depositAmount,
+            arbBalance,
             arbSepoliaFork,
             sepoliaFork,
             arbSepoliaNetworkDetails,
@@ -322,5 +326,16 @@ contract CrossChainTest is Test {
             arbSepoliaToken,
             sepoliaToken
         );
+
+        // =====================================================
+        // 5. Final verification on Sepolia
+        // =====================================================
+        vm.selectFork(sepoliaFork);
+        assertEq(
+            sepoliaToken.balanceOf(user),
+            arbBalance,
+            "User Sepolia token balance after round-trip should match Arb balance"
+        );
     }
 }
+
