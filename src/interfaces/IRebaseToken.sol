@@ -3,14 +3,7 @@ pragma solidity ^0.8.24;
 
 interface IRebaseToken {
     /**
-     * @notice Mints new tokens to a specified address using the global interest rate.
-     * @param _to The address to mint tokens to.
-     * @param _amount The amount of tokens to mint.
-     */
-    function mint(address _to, uint256 _amount) external;
-
-    /**
-     * @notice Mints new tokens to a specified address with a specific interest rate (for cross-chain minting).
+     * @notice Mints new tokens to a specified address with a specific interest rate.
      * @param _to The address to mint tokens to.
      * @param _amount The amount of tokens to mint.
      * @param _interestRate The interest rate to set for the user.
@@ -35,4 +28,6 @@ interface IRebaseToken {
     // Other functions from the actual RebaseToken.sol are not needed here.
 
     function getUserInterestRate(address _user) external view returns (uint256);
+
+    function getInterestRate() external view returns (uint256);
 }
