@@ -49,3 +49,25 @@ contract VaultDeployer is Script {
         vm.stopBroadcast();
     }
 }
+
+contract SetPermissions is Script {
+    function grantRole(address token, address pool) public {
+        vm.startBroadcast();
+        RebaseToken(token).grantMintAndBurnRole(address(pool));
+        vm.stopBroadcast();
+    }
+
+    function setAdminAndPool(address token, address pool) public {
+        CCIPLocalSimulatorFork ccipLocalSimulatorFork = new CCIPLocalSimulatorFork();
+        Register.NetworkDetails memory networkDetails = ccipLocalSimulatorFork.getNetworkDetails(block.chainid);
+
+        vm.startBroadcast();
+        RegistryModuleOwnerCustom(networkDetails.registryModuleOwnerCustomAddress)
+            .registerAdminViaOwner(address(token));
+        TokenAdminRegistry(networkDetails.tokenAdminRegistryAddress)
+            .acceptAdminRole(address(token));
+        TokenAdminRegistry(networkDetails.tokenAdminRegistryAddress)
+            .setPool(address(token), address(pool));
+        vm.stopBroadcast();
+    }
+}
