@@ -101,16 +101,14 @@ contract CrossChainTest is Test {
         vm.startPrank(owner);
         RegistryModuleOwnerCustom(sepoliaNetworkDetails.registryModuleOwnerCustomAddress)
             .registerAdminViaOwner(address(sepoliaToken));
-        TokenAdminRegistry(sepoliaNetworkDetails.tokenAdminRegistryAddress)
-            .acceptAdminRole(address(sepoliaToken));
+        TokenAdminRegistry(sepoliaNetworkDetails.tokenAdminRegistryAddress).acceptAdminRole(address(sepoliaToken));
         vm.stopPrank();
 
         vm.selectFork(arbSepoliaFork);
         vm.startPrank(owner);
         RegistryModuleOwnerCustom(arbSepoliaNetworkDetails.registryModuleOwnerCustomAddress)
             .registerAdminViaOwner(address(arbSepoliaToken));
-        TokenAdminRegistry(arbSepoliaNetworkDetails.tokenAdminRegistryAddress)
-            .acceptAdminRole(address(arbSepoliaToken));
+        TokenAdminRegistry(arbSepoliaNetworkDetails.tokenAdminRegistryAddress).acceptAdminRole(address(arbSepoliaToken));
         vm.stopPrank();
 
         // =====================================================
@@ -194,10 +192,7 @@ contract CrossChainTest is Test {
 
         // 1. Build the CCIP message
         Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
-        tokenAmounts[0] = Client.EVMTokenAmount({
-            token: address(localToken),
-            amount: amountToBridge
-        });
+        tokenAmounts[0] = Client.EVMTokenAmount({token: address(localToken), amount: amountToBridge});
 
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
             receiver: abi.encode(user),
@@ -208,10 +203,8 @@ contract CrossChainTest is Test {
         });
 
         // 2. Get the CCIP fee
-        uint256 fee = IRouterClient(localNetworkDetails.routerAddress).getFee(
-            remoteNetworkDetails.chainSelector,
-            message
-        );
+        uint256 fee =
+            IRouterClient(localNetworkDetails.routerAddress).getFee(remoteNetworkDetails.chainSelector, message);
 
         // 3. Fund the user with LINK for fees (test-only via simulator faucet)
         ccipLocalSimulatorFork.requestLinkFromFaucet(user, fee);
@@ -227,13 +220,9 @@ contract CrossChainTest is Test {
         // 6. Record the user's local balance BEFORE sending
         uint256 localBalanceBefore = localToken.balanceOf(user);
 
-
         // 8. Send the CCIP message
         vm.prank(user);
-        IRouterClient(localNetworkDetails.routerAddress).ccipSend(
-            remoteNetworkDetails.chainSelector,
-            message
-        );
+        IRouterClient(localNetworkDetails.routerAddress).ccipSend(remoteNetworkDetails.chainSelector, message);
 
         // 9. Assert local balance decreased by amountToBridge
         uint256 localBalanceAfter = localToken.balanceOf(user);
@@ -255,8 +244,6 @@ contract CrossChainTest is Test {
         // 13. Now we are on remoteFork. Assert remote balance increased by amountToBridge.
         uint256 remoteBalanceAfter = remoteToken.balanceOf(user);
         assertEq(remoteBalanceAfter, remoteBalanceBefore + amountToBridge, "Remote balance incorrect after receive");
-
-
     }
 
     // =========================================

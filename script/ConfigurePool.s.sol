@@ -46,10 +46,11 @@ contract ConfigurePoolScript is Script {
         });
 
         // Cast localPool address to TokenPool contract type
-        TokenPool(localPool).applyChainUpdates(
-            new uint64[](0), // Chains to remove (empty array)
-            chainsToAdd      // Chains to add/update
-        );
+        TokenPool(localPool)
+            .applyChainUpdates(
+                new uint64[](0), // Chains to remove (empty array)
+                chainsToAdd // Chains to add/update
+            );
 
         vm.stopBroadcast();
     }

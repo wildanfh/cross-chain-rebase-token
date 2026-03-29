@@ -6,9 +6,7 @@ import {Test} from "forge-std/Test.sol";
 import {RebaseToken} from "src/RebaseToken.sol";
 import {Vault} from "src/Vault.sol";
 import {IRebaseToken} from "src/interfaces/IRebaseToken.sol";
-
-
-
+import {console} from "forge-std/console.sol";
 
 contract RebaseTokenTest is Test {
     RebaseToken private rebaseToken;
@@ -59,12 +57,11 @@ contract RebaseTokenTest is Test {
 
         uint256 initialBalance = rebaseToken.balanceOf(user);
 
-        uint256 timeDelta = 1 days;
-        vm.warp(block.timestamp + timeDelta);
+        vm.warp(86401);
         uint256 balanceAfterFirstWarp = rebaseToken.balanceOf(user);
         uint256 interestFirstPeriod = balanceAfterFirstWarp - initialBalance;
 
-        vm.warp(block.timestamp + timeDelta);
+        vm.warp(172801);
         uint256 balanceAfterSecondWarp = rebaseToken.balanceOf(user);
         uint256 interestSecondPeriod = balanceAfterSecondWarp - balanceAfterFirstWarp;
 
