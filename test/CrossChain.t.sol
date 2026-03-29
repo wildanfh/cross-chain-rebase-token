@@ -227,8 +227,6 @@ contract CrossChainTest is Test {
         // 6. Record the user's local balance BEFORE sending
         uint256 localBalanceBefore = localToken.balanceOf(user);
 
-        // 7. Record the user's interest rate on the local chain (before fork switch)
-        uint256 localUserInterestRate = localToken.getUserInterestRate(user);
 
         // 8. Send the CCIP message
         vm.prank(user);
@@ -258,9 +256,7 @@ contract CrossChainTest is Test {
         uint256 remoteBalanceAfter = remoteToken.balanceOf(user);
         assertEq(remoteBalanceAfter, remoteBalanceBefore + amountToBridge, "Remote balance incorrect after receive");
 
-        // 14. Verify interest rate was preserved across chains (RebaseToken-specific)
-        uint256 remoteUserInterestRate = remoteToken.getUserInterestRate(user);
-        assertEq(remoteUserInterestRate, localUserInterestRate, "Interest rates do not match across chains");
+
     }
 
     // =========================================
@@ -336,6 +332,11 @@ contract CrossChainTest is Test {
             arbBalance,
             "User Sepolia token balance after round-trip should match Arb balance"
         );
+
+        uint256 initialInterestRate = sepoliaToken.getUserInterestRate(user);
+        vm.selectFork(arbSepoliaFork);
+        uint256 bridgedInterestRate = arbSepoliaToken.getUserInterestRate(user);
+        assertEq(initialInterestRate, bridgedInterestRate, "Interest rates do not match across chains");
     }
 }
 
