@@ -18,4 +18,11 @@ remappings = [
 sepolia = "${SEPOLIA_RPC_URL}"
 arb-sepolia = "${ARBITRUM_SEPOLIA_RPC_URL}"
 
+[profile.solx]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc_version = "bin/solx" 
+
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
